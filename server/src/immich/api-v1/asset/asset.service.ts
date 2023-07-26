@@ -12,9 +12,6 @@ import {
   mapAssetWithoutExif,
   mimeTypes,
   Permission,
-  StorageCore,
-  StorageFolder,
-  UploadFieldName,
   UploadFile,
 } from '@app/domain';
 import { AssetEntity, AssetType } from '@app/infra/entities';
@@ -30,10 +27,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Response as Res } from 'express';
 import { constants } from 'fs';
 import fs from 'fs/promises';
-import path, { extname } from 'path';
-import sanitize from 'sanitize-filename';
+import path from 'path';
 import { QueryFailedError, Repository } from 'typeorm';
-import { UploadRequest } from '../../app.interceptor';
 import { IAssetRepository } from './asset-repository';
 import { AssetCore } from './asset.core';
 import { AssetBulkUploadCheckDto } from './dto/asset-check.dto';
@@ -58,7 +53,6 @@ import {
   AssetCountByTimeBucketResponseDto,
   mapAssetCountByTimeBucket,
 } from './response-dto/asset-count-by-time-group-response.dto';
-import { AssetCountByUserIdResponseDto } from './response-dto/asset-count-by-user-id-response.dto';
 import { AssetFileUploadResponseDto } from './response-dto/asset-file-upload-response.dto';
 import { CheckDuplicateAssetResponseDto } from './response-dto/check-duplicate-asset-response.dto';
 import { CheckExistingAssetsResponseDto } from './response-dto/check-existing-assets-response.dto';
@@ -71,7 +65,6 @@ export class AssetService {
   readonly logger = new Logger(AssetService.name);
   private assetCore: AssetCore;
   private access: AccessCore;
-  private storageCore = new StorageCore();
 
   constructor(
     @Inject(IAccessRepository) accessRepository: IAccessRepository,
@@ -83,69 +76,6 @@ export class AssetService {
   ) {
     this.assetCore = new AssetCore(_assetRepository, jobRepository);
     this.access = new AccessCore(accessRepository);
-  }
-
-  canUploadFile({ authUser, fieldName, file }: UploadRequest): true {
-    this.access.requireUploadAccess(authUser);
-
-    const filename = file.originalName;
-
-    switch (fieldName) {
-      case UploadFieldName.ASSET_DATA:
-        if (mimeTypes.isAsset(filename)) {
-          return true;
-        }
-        break;
-
-      case UploadFieldName.LIVE_PHOTO_DATA:
-        if (mimeTypes.isVideo(filename)) {
-          return true;
-        }
-        break;
-
-      case UploadFieldName.SIDECAR_DATA:
-        if (mimeTypes.isSidecar(filename)) {
-          return true;
-        }
-        break;
-
-      case UploadFieldName.PROFILE_DATA:
-        if (mimeTypes.isProfile(filename)) {
-          return true;
-        }
-        break;
-    }
-
-    this.logger.error(`Unsupported file type ${filename}`);
-    throw new BadRequestException(`Unsupported file type ${filename}`);
-  }
-
-  getUploadFilename({ authUser, fieldName, file }: UploadRequest): string {
-    this.access.requireUploadAccess(authUser);
-
-    const originalExt = extname(file.originalName);
-
-    const lookup = {
-      [UploadFieldName.ASSET_DATA]: originalExt,
-      [UploadFieldName.LIVE_PHOTO_DATA]: '.mov',
-      [UploadFieldName.SIDECAR_DATA]: '.xmp',
-      [UploadFieldName.PROFILE_DATA]: originalExt,
-    };
-
-    return sanitize(`${this.cryptoRepository.randomUUID()}${lookup[fieldName]}`);
-  }
-
-  getUploadFolder({ authUser, fieldName }: UploadRequest): string {
-    authUser = this.access.requireUploadAccess(authUser);
-
-    let folder = this.storageCore.getFolderLocation(StorageFolder.UPLOAD, authUser.id);
-    if (fieldName === UploadFieldName.PROFILE_DATA) {
-      folder = this.storageCore.getFolderLocation(StorageFolder.PROFILE, authUser.id);
-    }
-
-    this.storageRepository.mkdirSync(folder);
-
-    return folder;
   }
 
   public async uploadFile(
@@ -536,14 +466,6 @@ export class AssetService {
     return mapAssetCountByTimeBucket(result);
   }
 
-  getAssetCountByUserId(authUser: AuthUserDto): Promise<AssetCountByUserIdResponseDto> {
-    return this._assetRepository.getAssetCountByUserId(authUser.id);
-  }
-
-  getArchivedAssetCountByUserId(authUser: AuthUserDto): Promise<AssetCountByUserIdResponseDto> {
-    return this._assetRepository.getArchivedAssetCountByUserId(authUser.id);
-  }
-
   getExifPermission(authUser: AuthUserDto) {
     return !authUser.isPublicUser || authUser.isShowExif;
   }
@@ -600,9 +522,11 @@ export class AssetService {
 
   private async sendFile(res: Res, filepath: string): Promise<void> {
     await fs.access(filepath, constants.R_OK);
+    const options = path.isAbsolute(filepath) ? {} : { root: process.cwd() };
+
     res.set('Cache-Control', 'private, max-age=86400, no-transform');
     res.header('Content-Type', mimeTypes.lookup(filepath));
-    res.sendFile(filepath, { root: process.cwd() }, (error: Error) => {
+    res.sendFile(filepath, options, (error: Error) => {
       if (!error) {
         return;
       }

@@ -412,7 +412,11 @@ class GalleryViewerPage extends HookConsumerWidget {
                 showUnselectedLabels: false,
                 items: [
                   BottomNavigationBarItem(
-                    icon: const Icon(Icons.ios_share_rounded),
+                    icon: Icon(
+                      Platform.isAndroid
+                          ? Icons.share_rounded
+                          : Icons.ios_share_rounded,
+                    ),
                     label: 'control_bottom_app_bar_share'.tr(),
                     tooltip: 'control_bottom_app_bar_share'.tr(),
                   ),
@@ -495,6 +499,7 @@ class GalleryViewerPage extends HookConsumerWidget {
             PhotoViewGallery.builder(
               scaleStateChangedCallback: (state) {
                 isZoomed.value = state != PhotoViewScaleState.initial;
+                ref.read(showControlsProvider.notifier).show = !isZoomed.value;
               },
               pageController: controller,
               scrollPhysics: isZoomed.value
