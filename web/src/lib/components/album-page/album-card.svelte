@@ -52,7 +52,7 @@
   });
 
   const getAlbumOwnerInfo = async (): Promise<UserResponseDto> => {
-    const { data } = await api.userApi.getUserById({ userId: album.ownerId });
+    const { data } = await api.userApi.getUserById({ id: album.ownerId });
 
     return data;
   };
@@ -74,7 +74,7 @@
       data-testid="context-button-parent"
     >
       <IconButton color="overlay-primary">
-        <DotsVertical size="20" />
+        <DotsVertical size="20" class="icon-white-drop-shadow" color="white" />
       </IconButton>
     </div>
   {/if}

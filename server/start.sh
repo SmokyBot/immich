@@ -1,4 +1,11 @@
-#!/bin/sh
+#!/usr/bin/env sh
+
+export LD_PRELOAD=/usr/lib/$(arch)-linux-gnu/libmimalloc.so.2
+
+if [ "$DB_URL_FILE" ]; then
+	export DB_URL=$(cat $DB_URL_FILE)
+	unset DB_URL_FILE
+fi
 
 if [ "$DB_HOSTNAME_FILE" ]; then
 	export DB_HOSTNAME=$(cat $DB_HOSTNAME_FILE)

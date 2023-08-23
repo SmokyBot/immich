@@ -16,15 +16,9 @@ void main() {
   // final instance = PeopleUpdateItem();
 
   group('test PeopleUpdateItem', () {
-    // Person id.
-    // String id
-    test('to test the property `id`', () async {
-      // TODO
-    });
-
-    // Person name.
-    // String name
-    test('to test the property `name`', () async {
+    // Person date of birth.
+    // DateTime birthDate
+    test('to test the property `birthDate`', () async {
       // TODO
     });
 
@@ -34,9 +28,21 @@ void main() {
       // TODO
     });
 
+    // Person id.
+    // String id
+    test('to test the property `id`', () async {
+      // TODO
+    });
+
     // Person visibility
     // bool isHidden
     test('to test the property `isHidden`', () async {
+      // TODO
+    });
+
+    // Person name.
+    // String name
+    test('to test the property `name`', () async {
       // TODO
     });
 

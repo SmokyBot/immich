@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -14,8 +16,55 @@ class ExifBottomSheet extends HookConsumerWidget {
 
   const ExifBottomSheet({Key? key, required this.asset}) : super(key: key);
 
-  bool get showMap =>
+  bool get hasCoordinates =>
       asset.exifInfo?.latitude != null && asset.exifInfo?.longitude != null;
+
+  String get formattedDateTime {
+    final fileCreatedAt = asset.fileCreatedAt.toLocal();
+    final date = DateFormat.yMMMEd().format(fileCreatedAt);
+    final time = DateFormat.jm().format(fileCreatedAt);
+
+    return '$date • $time';
+  }
+
+  Future<Uri?> _createCoordinatesUri() async {
+    if (!hasCoordinates) {
+      return null;
+    }
+
+    double latitude = asset.exifInfo!.latitude!;
+    double longitude = asset.exifInfo!.longitude!;
+
+    const zoomLevel = 16;
+
+    if (Platform.isAndroid) {
+      Uri uri = Uri(
+        scheme: 'geo',
+        host: '$latitude,$longitude',
+        queryParameters: {'z': '$zoomLevel', 'q': formattedDateTime},
+      );
+      if (await canLaunchUrl(uri)) {
+        return uri;
+      }
+    } else if (Platform.isIOS) {
+      var params = {
+        'll': '$latitude,$longitude',
+        'q': formattedDateTime,
+        'z': '$zoomLevel',
+      };
+      Uri uri = Uri.https('maps.apple.com', '/', params);
+      if (await canLaunchUrl(uri)) {
+        return uri;
+      }
+    }
+
+    return Uri(
+      scheme: 'https',
+      host: 'openstreetmap.org',
+      queryParameters: {'mlat': '$latitude', 'mlon': '$longitude'},
+      fragment: 'map=$zoomLevel/$latitude/$longitude',
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -42,6 +91,16 @@ class ExifBottomSheet extends HookConsumerWidget {
                     exifInfo?.longitude ?? 0,
                   ),
                   zoom: 16.0,
+                  onTap: (tapPosition, latLong) async {
+                    Uri? uri = await _createCoordinatesUri();
+
+                    if (uri == null) {
+                      return;
+                    }
+
+                    debugPrint('Opening Map Uri: $uri');
+                    launchUrl(uri);
+                  },
                 ),
                 nonRotatedChildren: [
                   RichAttributionWidget(
@@ -110,7 +169,7 @@ class ExifBottomSheet extends HookConsumerWidget {
 
     buildLocation() {
       // Guard no lat/lng
-      if (!showMap) {
+      if (!hasCoordinates) {
         return Container();
       }
 
@@ -158,7 +217,7 @@ class ExifBottomSheet extends HookConsumerWidget {
               Text(
                 "${exifInfo!.latitude!.toStringAsFixed(4)}, ${exifInfo.longitude!.toStringAsFixed(4)}",
                 style: const TextStyle(fontSize: 12),
-              )
+              ),
             ],
           ),
         ],
@@ -166,12 +225,8 @@ class ExifBottomSheet extends HookConsumerWidget {
     }
 
     buildDate() {
-      final fileCreatedAt = asset.fileCreatedAt.toLocal();
-      final date = DateFormat.yMMMEd().format(fileCreatedAt);
-      final time = DateFormat.jm().format(fileCreatedAt);
-
       return Text(
-        '$date • $time',
+        formattedDateTime,
         style: const TextStyle(
           fontWeight: FontWeight.bold,
           fontSize: 14,
@@ -265,7 +320,7 @@ class ExifBottomSheet extends HookConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Flexible(
-                              flex: showMap ? 5 : 0,
+                              flex: hasCoordinates ? 5 : 0,
                               child: Padding(
                                 padding: const EdgeInsets.only(right: 8.0),
                                 child: buildLocation(),
@@ -295,7 +350,7 @@ class ExifBottomSheet extends HookConsumerWidget {
                     if (asset.isRemote) DescriptionInput(asset: asset),
                     const SizedBox(height: 8.0),
                     buildLocation(),
-                    SizedBox(height: showMap ? 16.0 : 0.0),
+                    SizedBox(height: hasCoordinates ? 16.0 : 0.0),
                     buildDetail(),
                     const SizedBox(height: 50),
                   ],

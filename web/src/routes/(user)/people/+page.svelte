@@ -19,6 +19,8 @@
   import ImageThumbnail from '$lib/components/assets/thumbnail/image-thumbnail.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { browser } from '$app/environment';
+  import MergeSuggestionModal from '$lib/components/faces-page/merge-suggestion-modal.svelte';
+  import SetBirthDateModal from '$lib/components/faces-page/set-birth-date-modal.svelte';
 
   export let data: PageData;
   let selectHidden = false;
@@ -32,6 +34,14 @@
 
   let showLoadingSpinner = false;
   let toggleVisibility = false;
+
+  let showChangeNameModal = false;
+  let showSetBirthDateModal = false;
+  let showMergeModal = false;
+  let personName = '';
+  let personMerge1: PersonResponseDto;
+  let personMerge2: PersonResponseDto;
+  let edittingPerson: PersonResponseDto | null = null;
 
   people.forEach((person: PersonResponseDto) => {
     initialHiddenValues[person.id] = person.isHidden;
@@ -136,20 +146,72 @@
     toggleVisibility = false;
   };
 
-  let showChangeNameModal = false;
-  let personName = '';
-  let edittingPerson: PersonResponseDto | null = null;
+  const handleMergeSameFace = async (response: [PersonResponseDto, PersonResponseDto]) => {
+    const [personToMerge, personToBeMergedIn] = response;
+    showMergeModal = false;
 
-  const handleChangeName = ({ detail }: CustomEvent<PersonResponseDto>) => {
+    if (!edittingPerson) {
+      return;
+    }
+    try {
+      await api.personApi.mergePerson({
+        id: personMerge2.id,
+        mergePersonDto: { ids: [personToMerge.id] },
+      });
+      countVisiblePeople--;
+      people = people.filter((person: PersonResponseDto) => person.id !== personToMerge.id);
+
+      notificationController.show({
+        message: 'Merge faces succesfully',
+        type: NotificationType.Info,
+      });
+    } catch (error) {
+      handleError(error, 'Unable to save name');
+    }
+    if (personToBeMergedIn.name !== personName && edittingPerson.id === personToBeMergedIn.id) {
+      /*
+       *
+       * If the user merges one of the suggested people into the person he's editing it, it's merging the suggested person AND renames
+       * the person he's editing
+       *
+       */
+      try {
+        await api.personApi.updatePerson({ id: personToBeMergedIn.id, personUpdateDto: { name: personName } });
+        for (const person of people) {
+          if (person.id === personToBeMergedIn.id) {
+            person.name = personName;
+            break;
+          }
+        }
+        notificationController.show({
+          message: 'Change name succesfully',
+          type: NotificationType.Info,
+        });
+
+        // trigger reactivity
+        people = people;
+      } catch (error) {
+        handleError(error, 'Unable to save name');
+      }
+    }
+  };
+
+  const handleChangeName = (detail: PersonResponseDto) => {
     showChangeNameModal = true;
     personName = detail.name;
+    personMerge1 = detail;
     edittingPerson = detail;
   };
 
-  const handleHideFace = async (event: CustomEvent<PersonResponseDto>) => {
+  const handleSetBirthDate = (detail: PersonResponseDto) => {
+    showSetBirthDateModal = true;
+    edittingPerson = detail;
+  };
+
+  const handleHideFace = async (detail: PersonResponseDto) => {
     try {
       const { data: updatedPerson } = await api.personApi.updatePerson({
-        id: event.detail.id,
+        id: detail.id,
         personUpdateDto: { isHidden: true },
       });
 
@@ -177,37 +239,102 @@
     }
   };
 
-  const handleMergeFaces = (event: CustomEvent<PersonResponseDto>) => {
-    goto(`${AppRoute.PEOPLE}/${event.detail.id}?action=merge`);
+  const handleMergeFaces = (detail: PersonResponseDto) => {
+    goto(`${AppRoute.PEOPLE}/${detail.id}?action=merge`);
   };
 
   const submitNameChange = async () => {
+    showChangeNameModal = false;
+    if (!edittingPerson || personName === edittingPerson.name) {
+      return;
+    }
+    // We check if another person has the same name as the name entered by the user
+
+    const existingPerson = people.find(
+      (person: PersonResponseDto) =>
+        person.name.toLowerCase() === personName.toLowerCase() &&
+        edittingPerson &&
+        person.id !== edittingPerson.id &&
+        person.name,
+    );
+    if (existingPerson) {
+      personMerge2 = existingPerson;
+      showMergeModal = true;
+      return;
+    }
+    changeName();
+  };
+
+  const submitBirthDateChange = async (value: string) => {
+    showSetBirthDateModal = false;
+    if (!edittingPerson || value === edittingPerson.birthDate) {
+      return;
+    }
+
     try {
-      if (edittingPerson) {
-        const { data: updatedPerson } = await api.personApi.updatePerson({
-          id: edittingPerson.id,
-          personUpdateDto: { name: personName },
-        });
+      const { data: updatedPerson } = await api.personApi.updatePerson({
+        id: edittingPerson.id,
+        personUpdateDto: { birthDate: value.length > 0 ? value : null },
+      });
 
-        people = people.map((person: PersonResponseDto) => {
-          if (person.id === updatedPerson.id) {
-            return updatedPerson;
-          }
-          return person;
-        });
+      people = people.map((person: PersonResponseDto) => {
+        if (person.id === updatedPerson.id) {
+          return updatedPerson;
+        }
+        return person;
+      });
 
-        showChangeNameModal = false;
+      notificationController.show({
+        message: 'Date of birth saved succesfully',
+        type: NotificationType.Info,
+      });
+    } catch (error) {
+      handleError(error, 'Unable to save name');
+    }
+  };
 
-        notificationController.show({
-          message: 'Change name succesfully',
-          type: NotificationType.Info,
-        });
-      }
+  const changeName = async () => {
+    showMergeModal = false;
+    showChangeNameModal = false;
+
+    if (!edittingPerson) {
+      return;
+    }
+    try {
+      const { data: updatedPerson } = await api.personApi.updatePerson({
+        id: edittingPerson.id,
+        personUpdateDto: { name: personName },
+      });
+
+      people = people.map((person: PersonResponseDto) => {
+        if (person.id === updatedPerson.id) {
+          return updatedPerson;
+        }
+        return person;
+      });
+
+      notificationController.show({
+        message: 'Change name succesfully',
+        type: NotificationType.Info,
+      });
     } catch (error) {
       handleError(error, 'Unable to save name');
     }
   };
 </script>
+
+{#if showMergeModal}
+  <FullScreenModal on:clickOutside={() => (showMergeModal = false)}>
+    <MergeSuggestionModal
+      {personMerge1}
+      {personMerge2}
+      {people}
+      on:close={() => (showMergeModal = false)}
+      on:reject={() => changeName()}
+      on:confirm={(event) => handleMergeSameFace(event.detail)}
+    />
+  </FullScreenModal>
+{/if}
 
 <UserPageLayout user={data.user} title="People">
   <svelte:fragment slot="buttons">
@@ -228,9 +355,10 @@
           {#if !person.isHidden}
             <PeopleCard
               {person}
-              on:change-name={handleChangeName}
-              on:merge-faces={handleMergeFaces}
-              on:hide-face={handleHideFace}
+              on:change-name={() => handleChangeName(person)}
+              on:set-birth-date={() => handleSetBirthDate(person)}
+              on:merge-faces={() => handleMergeFaces(person)}
+              on:hide-face={() => handleHideFace(person)}
             />
           {/if}
         {/each}
@@ -258,7 +386,7 @@
 
         <form on:submit|preventDefault={submitNameChange} autocomplete="off">
           <div class="m-4 flex flex-col gap-2">
-            <label class="immich-form-label" for="email">Name</label>
+            <label class="immich-form-label" for="name">Name</label>
             <!-- svelte-ignore a11y-autofocus -->
             <input class="immich-form-input" id="name" name="name" type="text" bind:value={personName} autofocus />
           </div>
@@ -276,6 +404,14 @@
         </form>
       </div>
     </FullScreenModal>
+  {/if}
+
+  {#if showSetBirthDateModal}
+    <SetBirthDateModal
+      birthDate={edittingPerson?.birthDate ?? ''}
+      on:close={() => (showSetBirthDateModal = false)}
+      on:updated={(event) => submitBirthDateChange(event.detail)}
+    />
   {/if}
 </UserPageLayout>
 {#if selectHidden}

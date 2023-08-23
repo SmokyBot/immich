@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { AlbumResponseDto, api, AssetResponseDto, AssetTypeEnum, SharedLinkResponseDto } from '@api';
+  import { AlbumResponseDto, api, AssetJobName, AssetResponseDto, AssetTypeEnum, SharedLinkResponseDto } from '@api';
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import ChevronLeft from 'svelte-material-icons/ChevronLeft.svelte';
   import ChevronRight from 'svelte-material-icons/ChevronRight.svelte';
@@ -12,22 +12,34 @@
   import DetailPanel from './detail-panel.svelte';
   import PhotoViewer from './photo-viewer.svelte';
   import VideoViewer from './video-viewer.svelte';
+  import PanoramaViewer from './panorama-viewer.svelte';
+  import { ProjectionType } from '$lib/constants';
   import ConfirmDialogue from '$lib/components/shared-components/confirm-dialogue.svelte';
   import ProfileImageCropper from '../shared-components/profile-image-cropper.svelte';
 
-  import { assetStore } from '$lib/stores/assets.store';
   import { isShowDetail } from '$lib/stores/preferences.store';
   import { addAssetsToAlbum, downloadFile } from '$lib/utils/asset-utils';
   import NavigationArea from './navigation-area.svelte';
   import { browser } from '$app/environment';
   import { handleError } from '$lib/utils/handle-error';
+  import type { AssetStore } from '$lib/stores/assets.store';
 
+  export let assetStore: AssetStore | null = null;
   export let asset: AssetResponseDto;
   export let publicSharedKey = '';
   export let showNavigation = true;
   export let sharedLink: SharedLinkResponseDto | undefined = undefined;
 
-  const dispatch = createEventDispatcher();
+  const dispatch = createEventDispatcher<{
+    archived: AssetResponseDto;
+    unarchived: AssetResponseDto;
+    favorite: AssetResponseDto;
+    unfavorite: AssetResponseDto;
+    close: void;
+    next: void;
+    previous: void;
+  }>();
+
   let appearsInAlbums: AlbumResponseDto[] = [];
   let isShowAlbumPicker = false;
   let isShowDeleteConfirmation = false;
@@ -41,7 +53,9 @@
   onMount(async () => {
     document.addEventListener('keydown', onKeyboardPress);
 
-    getAllAlbums();
+    if (!sharedLink) {
+      getAllAlbums();
+    }
 
     // Import hack :( see https://github.com/vadimkorr/svelte-carousel/issues/27#issuecomment-851022295
     // TODO: Move to regular import once the package correctly supports ESM.
@@ -55,7 +69,7 @@
     }
   });
 
-  $: asset.id && getAllAlbums(); // Update the album information when the asset ID changes
+  $: asset.id && !sharedLink && getAllAlbums(); // Update the album information when the asset ID changes
 
   const getAllAlbums = async () => {
     try {
@@ -102,18 +116,16 @@
     closeViewer();
   };
 
-  const closeViewer = () => {
-    dispatch('close');
-  };
+  const closeViewer = () => dispatch('close');
 
   const navigateAssetForward = (e?: Event) => {
     e?.stopPropagation();
-    dispatch('navigate-next');
+    dispatch('next');
   };
 
   const navigateAssetBackward = (e?: Event) => {
     e?.stopPropagation();
-    dispatch('navigate-previous');
+    dispatch('previous');
   };
 
   const showDetailInfoHandler = () => {
@@ -132,7 +144,7 @@
 
       for (const asset of deletedAssets) {
         if (asset.status == 'SUCCESS') {
-          assetStore.removeAsset(asset.id);
+          assetStore?.removeAsset(asset.id);
         }
       }
     } catch (e) {
@@ -156,14 +168,15 @@
       });
 
       asset.isFavorite = data.isFavorite;
-      assetStore.updateAsset(asset.id, data.isFavorite);
+      assetStore?.updateAsset(data);
+      dispatch(data.isFavorite ? 'favorite' : 'unfavorite', data);
 
       notificationController.show({
         type: NotificationType.Info,
         message: asset.isFavorite ? `Added to favorites` : `Removed from favorites`,
       });
     } catch (error) {
-      handleError(error, `Unable to ${asset.isArchived ? `add asset to` : `remove asset from`} favorites`);
+      handleError(error, `Unable to ${asset.isFavorite ? `add asset to` : `remove asset from`} favorites`);
     }
   };
 
@@ -186,11 +199,8 @@
     isShowAlbumPicker = false;
     const album = event.detail.album;
 
-    addAssetsToAlbum(album.id, [asset.id]).then((dto) => {
-      if (dto.successfullyAdded === 1 && dto.album) {
-        appearsInAlbums = [...appearsInAlbums, dto.album];
-      }
-    });
+    await addAssetsToAlbum(album.id, [asset.id]);
+    await getAllAlbums();
   };
 
   const disableKeyDownEvent = () => {
@@ -215,12 +225,8 @@
       });
 
       asset.isArchived = data.isArchived;
-
-      if (data.isArchived) {
-        dispatch('archived', data);
-      } else {
-        dispatch('unarchived', data);
-      }
+      assetStore?.updateAsset(data);
+      dispatch(data.isArchived ? 'archived' : 'unarchived', data);
 
       notificationController.show({
         type: NotificationType.Info,
@@ -239,6 +245,15 @@
         return 'Video';
       default:
         return 'Asset';
+    }
+  };
+
+  const handleRunJob = async (name: AssetJobName) => {
+    try {
+      await api.assetApi.runAssetJobs({ assetJobsDto: { assetIds: [asset.id], name } });
+      notificationController.show({ type: NotificationType.Info, message: api.getAssetJobMessage(name) });
+    } catch (error) {
+      handleError(error, `Unable to submit job`);
     }
   };
 </script>
@@ -266,6 +281,7 @@
       on:stopMotionPhoto={() => (shouldPlayMotionPhoto = false)}
       on:toggleArchive={toggleArchive}
       on:asProfileImage={() => (isShowProfileImageCrop = true)}
+      on:runJob={({ detail: job }) => handleRunJob(job)}
     />
   </div>
 
@@ -293,6 +309,10 @@
             on:close={closeViewer}
             on:onVideoEnded={() => (shouldPlayMotionPhoto = false)}
           />
+        {:else if asset.exifInfo?.projectionType === ProjectionType.EQUIRECTANGULAR || asset.originalPath
+            .toLowerCase()
+            .endsWith('.insp')}
+          <PanoramaViewer {publicSharedKey} {asset} />
         {:else}
           <PhotoViewer {publicSharedKey} {asset} on:close={closeViewer} />
         {/if}
@@ -318,6 +338,7 @@
       <DetailPanel
         {asset}
         albums={appearsInAlbums}
+        {sharedLink}
         on:close={() => ($isShowDetail = false)}
         on:close-viewer={handleCloseViewer}
         on:description-focus-in={disableKeyDownEvent}

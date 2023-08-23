@@ -21,6 +21,8 @@ export const SERVER_VERSION = `${serverVersion.major}.${serverVersion.minor}.${s
 
 export const APP_MEDIA_LOCATION = process.env.IMMICH_MEDIA_LOCATION || './upload';
 
+export const SEARCH_ENABLED = process.env.TYPESENSE_ENABLED !== 'false';
+
 export const MACHINE_LEARNING_URL = process.env.IMMICH_MACHINE_LEARNING_URL || 'http://immich-machine-learning:3003';
 export const MACHINE_LEARNING_ENABLED = MACHINE_LEARNING_URL !== 'false';
 
@@ -48,6 +50,7 @@ const image: Record<string, string[]> = {
   '.heic': ['image/heic'],
   '.heif': ['image/heif'],
   '.iiq': ['image/iiq', 'image/x-phaseone-iiq'],
+  '.insp': ['image/jpeg'],
   '.jpeg': ['image/jpeg'],
   '.jpg': ['image/jpeg'],
   '.jxl': ['image/jxl'],
@@ -65,6 +68,7 @@ const image: Record<string, string[]> = {
   '.sr2': ['image/sr2', 'image/x-sony-sr2'],
   '.srf': ['image/srf', 'image/x-sony-srf'],
   '.srw': ['image/srw', 'image/x-samsung-srw'],
+  '.tif': ['image/tiff'],
   '.tiff': ['image/tiff'],
   '.webp': ['image/webp'],
   '.x3f': ['image/x3f', 'image/x-sigma-x3f'],
@@ -79,6 +83,7 @@ const video: Record<string, string[]> = {
   '.3gp': ['video/3gpp'],
   '.avi': ['video/avi', 'video/msvideo', 'video/vnd.avi', 'video/x-msvideo'],
   '.flv': ['video/x-flv'],
+  '.insv': ['video/mp4'],
   '.m2ts': ['video/mp2t'],
   '.mkv': ['video/x-matroska'],
   '.mov': ['video/quicktime'],
